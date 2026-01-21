@@ -927,7 +927,7 @@ func (sf *SnowflakeProxy) checkNATType(config webrtc.Configuration, probeURL str
 
 	// send offer
 	pollResp := messages.ProxyPollResponse{
-		Status: "client match",
+		Status: messages.ProxyClientMatch,
 		Offer:  sdp,
 	}
 	body, err := pollResp.Encode()
