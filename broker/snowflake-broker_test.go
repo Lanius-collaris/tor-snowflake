@@ -97,10 +97,15 @@ func TestBroker(t *testing.T) {
 		i := &IPC{ctx}
 
 		Convey("Adds Snowflake", func() {
-			So(ctx.snowflakes.Len(), ShouldEqual, 0)
+			So(ctx.unrestrictedPool.Len(), ShouldEqual, 0)
 			So(len(ctx.idToSnowflake), ShouldEqual, 0)
-			ctx.AddSnowflake("foo", "", NATUnrestricted, 0)
-			So(ctx.snowflakes.Len(), ShouldEqual, 1)
+			req := &ProxyPoll{
+				id:      "foo",
+				natType: NATUnrestricted,
+				pool:    ctx.unrestrictedPool,
+			}
+			ctx.AddSnowflake(req)
+			So(ctx.unrestrictedPool.Len(), ShouldEqual, 1)
 			So(len(ctx.idToSnowflake), ShouldEqual, 1)
 		})
 
@@ -109,18 +114,19 @@ func TestBroker(t *testing.T) {
 			p.id = "test"
 			p.natType = "unrestricted"
 			p.offerChannel = make(chan *ClientOffer)
+			p.pool = ctx.unrestrictedPool
 			go func(ctx *BrokerContext) {
 				ctx.proxyPolls <- p
 				close(ctx.proxyPolls)
 			}(ctx)
 			ctx.Broker()
-			So(ctx.snowflakes.Len(), ShouldEqual, 1)
-			snowflake := heap.Pop(ctx.snowflakes).(*Snowflake)
+			So(ctx.unrestrictedPool.Len(), ShouldEqual, 1)
+			snowflake := heap.Pop(ctx.unrestrictedPool).(*Snowflake)
 			snowflake.offerChannel <- &ClientOffer{sdp: []byte("test offer")}
 			offer := <-p.offerChannel
 			So(ctx.idToSnowflake["test"], ShouldNotBeNil)
 			So(offer.sdp, ShouldResemble, []byte("test offer"))
-			So(ctx.snowflakes.Len(), ShouldEqual, 0)
+			So(ctx.unrestrictedPool.Len(), ShouldEqual, 0)
 		})
 
 		Convey("Request an offer from the Snowflake Heap", func() {
@@ -165,7 +171,12 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				snowflake := ctx.AddSnowflake("test", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "test",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					clientOffers(i, w, r)
 					done <- true
@@ -194,7 +205,12 @@ client-sqs-ips
 			})
 
 			Convey("with unrestricted proxy to unrestricted client if there are no restricted proxies", func() {
-				snowflake := ctx.AddSnowflake("test", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "test",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				offerData, err := createClientOffer(sdp, NATUnrestricted, "")
 				So(err, ShouldBeNil)
 				r, err := http.NewRequest("POST", "snowflake.broker/client", offerData)
@@ -222,7 +238,12 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "fake",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					clientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -268,7 +289,12 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "fake",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					clientOffers(i, w, r)
 					done <- true
@@ -301,7 +327,12 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "fake",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					clientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -356,7 +387,12 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "fake",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					ampClientOffers(i, w, r)
 					done <- true
@@ -391,7 +427,12 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+				req := &ProxyPoll{
+					id:      "fake",
+					natType: NATUnrestricted,
+					pool:    ctx.unrestrictedPool,
+				}
+				snowflake := ctx.AddSnowflake(req)
 				go func() {
 					ampClientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -479,7 +520,12 @@ client-sqs-ips
 
 		Convey("Responds to proxy answers...", func() {
 			done := make(chan bool)
-			s := ctx.AddSnowflake(sid, "", NATUnrestricted, 0)
+			req := &ProxyPoll{
+				id:      sid,
+				natType: NATUnrestricted,
+				pool:    ctx.unrestrictedPool,
+			}
+			s := ctx.AddSnowflake(req)
 			w := httptest.NewRecorder()
 
 			data, err := createProxyAnswer(sdp, sid)
@@ -598,7 +644,12 @@ client-sqs-ips
 			// Manually do the Broker goroutine action here for full control.
 			p := <-ctx.proxyPolls
 			So(p.id, ShouldEqual, "ymbcCMto7KHNGYlp")
-			s := ctx.AddSnowflake(p.id, "", NATUnrestricted, 0)
+			req := &ProxyPoll{
+				id:      p.id,
+				natType: NATUnrestricted,
+				pool:    ctx.unrestrictedPool,
+			}
+			s := ctx.AddSnowflake(req)
 			go func() {
 				offer := <-s.offerChannel
 				p.offerChannel <- offer
@@ -846,7 +897,12 @@ snowflake-ips-nat-unknown 0
 			So(err, ShouldBeNil)
 
 			// Prepare a fake proxy to respond with.
-			snowflake := ctx.AddSnowflake("fake", "", NATUnrestricted, 0)
+			req := &ProxyPoll{
+				id:      "fake",
+				natType: NATUnrestricted,
+				pool:    ctx.unrestrictedPool,
+			}
+			snowflake := ctx.AddSnowflake(req)
 			go func() {
 				clientOffers(i, w, r)
 				done <- true
