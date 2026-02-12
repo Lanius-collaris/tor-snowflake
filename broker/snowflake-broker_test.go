@@ -76,6 +76,14 @@ func createProxyAnswer(sdp, sid string) (*bytes.Reader, error) {
 	return answer, nil
 }
 
+func createFakeProxyPoll(ctx *BrokerContext) *ProxyPoll {
+	return &ProxyPoll{
+		id:      "fake",
+		natType: NATUnrestricted,
+		pool:    ctx.unrestrictedPool,
+	}
+}
+
 func decodeAMPArmorToString(r io.Reader) (string, error) {
 	dec, err := amp.NewArmorDecoder(r)
 	if err != nil {
@@ -171,12 +179,7 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				req := &ProxyPoll{
-					id:      "test",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					clientOffers(i, w, r)
 					done <- true
@@ -238,12 +241,7 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				req := &ProxyPoll{
-					id:      "fake",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					clientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -289,12 +287,7 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				req := &ProxyPoll{
-					id:      "fake",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					clientOffers(i, w, r)
 					done <- true
@@ -327,12 +320,7 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				req := &ProxyPoll{
-					id:      "fake",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					clientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -387,12 +375,7 @@ client-sqs-ips
 			Convey("with a proxy answer if available.", func() {
 				done := make(chan bool)
 				// Prepare a fake proxy to respond with.
-				req := &ProxyPoll{
-					id:      "fake",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					ampClientOffers(i, w, r)
 					done <- true
@@ -427,12 +410,7 @@ client-sqs-ips
 					return
 				}
 				done := make(chan bool)
-				req := &ProxyPoll{
-					id:      "fake",
-					natType: NATUnrestricted,
-					pool:    ctx.unrestrictedPool,
-				}
-				snowflake := ctx.AddSnowflake(req)
+				snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 				go func() {
 					ampClientOffers(i, w, r)
 					// Takes a few seconds here...
@@ -897,12 +875,7 @@ snowflake-ips-nat-unknown 0
 			So(err, ShouldBeNil)
 
 			// Prepare a fake proxy to respond with.
-			req := &ProxyPoll{
-				id:      "fake",
-				natType: NATUnrestricted,
-				pool:    ctx.unrestrictedPool,
-			}
-			snowflake := ctx.AddSnowflake(req)
+			snowflake := ctx.AddSnowflake(createFakeProxyPoll(ctx))
 			go func() {
 				clientOffers(i, w, r)
 				done <- true
