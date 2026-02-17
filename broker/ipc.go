@@ -106,7 +106,8 @@ func (i *IPC) ProxyPolls(arg messages.Arg, response *[]byte) error {
 	var b []byte
 
 	// Wait for a client to avail an offer to the snowflake, or timeout if nil.
-	offer := i.ctx.RequestOffer(sid, proxyType, natType, clients)
+	poll := NewProxyPoll(sid, proxyType, natType, clients)
+	offer := i.ctx.RequestOffer(poll)
 
 	if offer == nil {
 		i.ctx.metrics.IncrementCounter("proxy-idle")

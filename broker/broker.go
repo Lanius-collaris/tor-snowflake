@@ -115,29 +115,44 @@ type ProxyPoll struct {
 	pool         *SnowflakePool
 }
 
-// Registers a Snowflake and waits for some Client to send an offer,
-// as part of the polling logic of the proxy handler.
-func (ctx *BrokerContext) RequestOffer(id string, proxyType string, natType string, clients int) *ClientOffer {
-	request := new(ProxyPoll)
-	request.id = id
-	request.proxyType = proxyType
-	request.natType = natType
-	request.clients = clients
-	request.offerChannel = make(chan *ClientOffer)
+// Create a new ProxyPoll and add assign it to a pool
+func NewProxyPoll(id, proxyType, natType string, clients int) *ProxyPoll {
+	poll := &ProxyPoll{
+		id:        id,
+		proxyType: proxyType,
+		natType:   natType,
+		clients:   clients,
+	}
+	poll.offerChannel = make(chan *ClientOffer)
 
-	for _, pool := range []*SnowflakePool{ctx.restrictedPool, ctx.unrestrictedPool} {
-		if pool.Belongs(*request) {
-			request.pool = pool
+	return poll
+}
+
+// Assign the proxy to a pool
+func (poll *ProxyPoll) AssignPool(pools []*SnowflakePool) {
+	for _, pool := range pools {
+		if pool.Belongs(*poll) {
+			poll.pool = pool
 			break
 		}
 	}
+}
+
+func (poll *ProxyPoll) GetPool() *SnowflakePool {
+	return poll.pool
+}
+
+// Registers a Snowflake and waits for some Client to send an offer,
+// as part of the polling logic of the proxy handler.
+func (ctx *BrokerContext) RequestOffer(poll *ProxyPoll) *ClientOffer {
+	poll.AssignPool([]*SnowflakePool{ctx.restrictedPool, ctx.unrestrictedPool})
 	//if we were unable to find a pool for the proxy, return nil immediately
-	if request.pool == nil {
+	if poll.GetPool() == nil {
 		return nil
 	}
-	ctx.proxyPolls <- request
+	ctx.proxyPolls <- poll
 	// Block until an offer is available, or timeout which sends a nil offer.
-	offer := <-request.offerChannel
+	offer := <-poll.offerChannel
 	return offer
 }
 
