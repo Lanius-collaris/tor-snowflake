@@ -129,25 +129,25 @@ func NewProxyPoll(id, proxyType, natType string, clients int) *ProxyPoll {
 }
 
 // Assign the proxy to a pool
-func (poll *ProxyPoll) AssignPool(pools []*SnowflakePool) {
+func (poll *ProxyPoll) AssignPool(pools []*SnowflakePool) error {
 	for _, pool := range pools {
 		if pool.Belongs(*poll) {
 			poll.pool = pool
 			break
 		}
 	}
-}
-
-func (poll *ProxyPoll) GetPool() *SnowflakePool {
-	return poll.pool
+	if poll.pool == nil {
+		return fmt.Errorf("no compatible pool found")
+	}
+	return nil
 }
 
 // Registers a Snowflake and waits for some Client to send an offer,
 // as part of the polling logic of the proxy handler.
 func (ctx *BrokerContext) RequestOffer(poll *ProxyPoll) *ClientOffer {
-	poll.AssignPool([]*SnowflakePool{ctx.restrictedPool, ctx.unrestrictedPool})
+	err := poll.AssignPool([]*SnowflakePool{ctx.restrictedPool, ctx.unrestrictedPool})
 	//if we were unable to find a pool for the proxy, return nil immediately
-	if poll.GetPool() == nil {
+	if err != nil {
 		return nil
 	}
 	ctx.proxyPolls <- poll
