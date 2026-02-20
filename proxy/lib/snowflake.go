@@ -104,6 +104,11 @@ func getCurrentNATType() string {
 	return currentNATType
 }
 
+// GetCurrentNATType returns the current NAT type string for external consumers (e.g., metrics).
+func GetCurrentNATType() string {
+	return getCurrentNATType()
+}
+
 func setCurrentNATType(newType string) {
 	currentNATTypeAccess.Lock()
 	defer currentNATTypeAccess.Unlock()
@@ -129,6 +134,20 @@ type SnowflakeProxy struct {
 	// Capacity is the maximum number of clients a Snowflake will serve.
 	// Proxies with a capacity of 0 will accept an unlimited number of clients.
 	Capacity uint
+	// Bandwidth is the maximum total bandwidth (in bytes per second) that
+	// the proxy will consume across all client connections combined.
+	// The limit is shared fairly: each client gets globalLimit / numClients.
+	// A value of 0 means unlimited (no bandwidth limiting).
+	Bandwidth int64
+	// TrafficLimit is the maximum total bytes (up + down combined) the proxy
+	// will transfer before automatically shutting down. Designed for VPS
+	// operators with monthly bandwidth quotas (e.g., 20 TB included).
+	// A value of 0 means unlimited (no traffic quota).
+	TrafficLimit int64
+	// TrafficStateFile is the path to a JSON file where traffic usage state
+	// is persisted across restarts. If empty, state is not persisted and the
+	// counter resets on each restart.
+	TrafficStateFile string
 	// STUNURL is the URLs (comma-separated) of the STUN server the proxy will use
 	STUNURL string
 	// BrokerURL is the URL of the Snowflake broker
@@ -181,7 +200,15 @@ type SnowflakeProxy struct {
 	periodicProxyStats *periodicProxyStats
 	bytesLogger        bytesLogger
 
+	bandwidthManager *BandwidthManager
+	trafficQuota     *TrafficQuota
+
 	relayReachable bool
+}
+
+// GetTrafficQuota returns the proxy's TrafficQuota instance, or nil if quota is not enabled.
+func (sf *SnowflakeProxy) GetTrafficQuota() *TrafficQuota {
+	return sf.trafficQuota
 }
 
 // Checks whether an IP address is a remote address for the client
@@ -313,12 +340,12 @@ func (s *SignalingServer) sendAnswer(sid string, pc *webrtc.PeerConnection) erro
 	return nil
 }
 
-func copyLoop(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser, shutdown chan struct{}) {
+func copyLoop(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser, shutdown chan struct{}, limiter *ClientLimiter, quota *TrafficQuota) {
 	var once sync.Once
 	defer c2.Close()
 	defer c1.Close()
 	done := make(chan struct{})
-	copyer := func(dst io.ReadWriteCloser, src io.ReadWriteCloser) {
+	copyer := func(dst io.Writer, src io.Reader) {
 		// Experimentally each usage of buffer has been observed to be lower than
 		// 2K; io.Copy defaults to 32K.
 		// This is probably determined by MTU in the server's `newHTTPHandler`.
@@ -327,15 +354,38 @@ func copyLoop(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser, shutdown chan struct
 		// Ignore io.ErrClosedPipe because it is likely caused by the
 		// termination of copyer in the other direction.
 		if _, err := io.CopyBuffer(dst, src, buffer); err != nil && err != io.ErrClosedPipe {
-			log.Printf("io.CopyBuffer inside CopyLoop generated an error: %v", err)
+			if err == ErrQuotaExhausted {
+				log.Printf("Connection closed: traffic quota exhausted")
+			} else {
+				log.Printf("io.CopyBuffer inside CopyLoop generated an error: %v", err)
+			}
 		}
 		once.Do(func() {
 			close(done)
 		})
 	}
 
-	go copyer(c1, c2)
-	go copyer(c2, c1)
+	var src1 io.Reader = c1
+	var dst1 io.Writer = c2
+	var src2 io.Reader = c2
+	var dst2 io.Writer = c1
+
+	if limiter != nil {
+		src1 = limiter.LimitReader(src1)
+		dst1 = limiter.LimitWriter(dst1)
+		src2 = limiter.LimitReader(src2)
+		dst2 = limiter.LimitWriter(dst2)
+	}
+
+	if quota != nil {
+		src1 = quota.CountingReader(src1)
+		dst1 = quota.CountingWriter(dst1)
+		src2 = quota.CountingReader(src2)
+		dst2 = quota.CountingWriter(dst2)
+	}
+
+	go copyer(dst1, src1)
+	go copyer(dst2, src2)
 
 	select {
 	case <-done:
@@ -352,6 +402,12 @@ func (sf *SnowflakeProxy) datachannelHandler(conn *webRTCConn, remoteIP net.IP, 
 	defer conn.Close()
 	defer tokens.ret()
 
+	// Reject new connections if traffic quota is exhausted
+	if sf.trafficQuota != nil && !sf.trafficQuota.Allow() {
+		log.Printf("Traffic quota exhausted, rejecting new connection")
+		return
+	}
+
 	if relayURL == "" {
 		relayURL = sf.RelayURL
 	}
@@ -363,7 +419,13 @@ func (sf *SnowflakeProxy) datachannelHandler(conn *webRTCConn, remoteIP net.IP, 
 	}
 	defer wsConn.Close()
 
-	copyLoop(conn, wsConn, sf.shutdown)
+	var limiter *ClientLimiter
+	if sf.bandwidthManager != nil {
+		limiter = sf.bandwidthManager.AddClient()
+		defer sf.bandwidthManager.RemoveClient(limiter)
+	}
+
+	copyLoop(conn, wsConn, sf.shutdown, limiter, sf.trafficQuota)
 	log.Printf("datachannelHandler ends")
 }
 
@@ -471,6 +533,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 		pr, pw := io.Pipe()
 		conn := newWebRTCConn(pc, dc, pr, sf.bytesLogger)
 		remoteIP := conn.RemoteIP()
+		var connectedAt time.Time
 
 		dc.SetBufferedAmountLowThreshold(bufferedAmountLowThreshold)
 
@@ -482,6 +545,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 		})
 
 		dc.OnOpen(func() {
+			connectedAt = time.Now()
 			log.Printf("Data Channel %s-%d open\n", dc.Label(), dc.ID())
 			sf.EventDispatcher.OnNewSnowflakeEvent(event.EventOnProxyClientConnected{})
 
@@ -511,6 +575,11 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 				country, _ = sf.GeoIP.GetCountryByAddr(remoteIP)
 			}
 			sf.EventDispatcher.OnNewSnowflakeEvent(event.EventOnProxyConnectionOver{Country: country})
+
+			if !connectedAt.IsZero() {
+				duration := time.Since(connectedAt).Seconds()
+				sf.EventDispatcher.OnNewSnowflakeEvent(event.EventOnProxyConnectionDuration{Duration: duration})
+			}
 
 			conn.dc = nil
 			dc.Close()
@@ -784,6 +853,27 @@ func (sf *SnowflakeProxy) Start() error {
 	sf.periodicProxyStats = newPeriodicProxyStats(sf.SummaryInterval, sf.EventDispatcher, sf.bytesLogger)
 	sf.EventDispatcher.AddSnowflakeEventListener(sf.periodicProxyStats)
 
+	if sf.Bandwidth > 0 {
+		sf.bandwidthManager = NewBandwidthManager(sf.Bandwidth)
+		log.Printf("Bandwidth limiting enabled: %d bytes/sec shared across all clients", sf.Bandwidth)
+	}
+
+	if sf.TrafficLimit > 0 {
+		var err error
+		sf.trafficQuota, err = NewTrafficQuota(sf.TrafficLimit, sf.TrafficStateFile, sf.Stop)
+		if err != nil {
+			return fmt.Errorf("error initializing traffic quota: %s", err)
+		}
+		log.Printf("Traffic quota enabled: %s total limit", formatBytes(sf.TrafficLimit))
+		if sf.TrafficStateFile != "" {
+			log.Printf("Traffic quota state file: %s", sf.TrafficStateFile)
+		}
+		remaining := sf.trafficQuota.RemainingBytes()
+		if remaining < sf.TrafficLimit {
+			log.Printf("Traffic quota: %s remaining", formatBytes(remaining))
+		}
+	}
+
 	broker, err = newSignalingServer(sf.BrokerURL)
 	if err != nil {
 		return fmt.Errorf("error configuring broker: %s", err)
@@ -838,7 +928,7 @@ func (sf *SnowflakeProxy) Start() error {
 	err = sf.checkNATType(config, sf.NATProbeURL)
 	if err != nil {
 		// non-fatal error. Log it and continue
-		log.Printf(err.Error())
+		log.Printf("%s", err.Error())
 		setCurrentNATType(NATUnknown)
 	}
 	sf.EventDispatcher.OnNewSnowflakeEvent(event.EventOnCurrentNATTypeDetermined{CurNATType: getCurrentNATType()})
