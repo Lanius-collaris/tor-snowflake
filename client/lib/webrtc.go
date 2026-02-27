@@ -18,6 +18,7 @@ import (
 
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/covertdtls"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/event"
+	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/media"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/proxy"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/util"
 )
@@ -44,6 +45,7 @@ type WebRTCPeer struct {
 	bytesLogger  bytesLogger
 	eventsLogger event.SnowflakeEventReceiver
 	proxy        *url.URL
+	mediaChannel *media.MediaChannel
 }
 
 // Deprecated: Use NewWebRTCPeerWithNatPolicyAndEventsAndProxy Instead.
@@ -114,6 +116,7 @@ func NewCovertWebRTCPeerWithNatPolicyAndEventsAndProxy(
 
 	connection.eventsLogger = eventsLogger
 	connection.proxy = proxy
+	connection.mediaChannel = media.NewMediaChannel()
 
 	err := connection.connect(config, broker, natPolicy, covertDTLSconfig)
 	if err != nil {
@@ -315,6 +318,7 @@ func (c *WebRTCPeer) preparePeerConnection(
 		log.Printf("NewPeerConnection ERROR: %s", err)
 		return err
 	}
+
 	ordered := true
 	dataChannelOptions := &webrtc.DataChannelInit{
 		Ordered: &ordered,
@@ -359,6 +363,11 @@ func (c *WebRTCPeer) preparePeerConnection(
 	c.open = make(chan struct{})
 	log.Println("WebRTC: DataChannel created")
 
+	err = c.mediaChannel.Start(c.pc)
+	if err != nil {
+		log.Printf("Failed to setup media channel: %v", err)
+	}
+
 	offer, err := c.pc.CreateOffer(nil)
 	// TODO: Potentially timeout and retry if ICE isn't working.
 	if err != nil {
@@ -386,6 +395,10 @@ func (c *WebRTCPeer) preparePeerConnection(
 
 // cleanup closes all channels and transports
 func (c *WebRTCPeer) cleanup() {
+	// Stop media channel
+	if c.mediaChannel != nil {
+		c.mediaChannel.Stop()
+	}
 	// Close this side of the SOCKS pipe.
 	if c.writePipe != nil { // c.writePipe can be nil in tests.
 		c.writePipe.Close()
