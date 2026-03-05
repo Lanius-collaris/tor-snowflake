@@ -143,7 +143,12 @@ func TestSQS(t *testing.T) {
 
 							n := numTimes.Add(1)
 							if n == 1 {
-								snowflake := ipcCtx.AddSnowflake("fake", "", NATUnrestricted, 0)
+								req := &ProxyPoll{
+									id:      "fake",
+									natType: NATUnrestricted,
+									pool:    ipcCtx.unrestrictedPool,
+								}
+								snowflake := ipcCtx.AddSnowflake(req)
 								go func(c C) {
 									<-snowflake.offerChannel
 									snowflake.answerChannel <- "fake answer"

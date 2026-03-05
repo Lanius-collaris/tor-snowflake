@@ -34,6 +34,7 @@ func (i *IPC) Debug(_ interface{}, response *string) error {
 
 	i.ctx.snowflakeLock.Lock()
 	s := fmt.Sprintf("current snowflakes available: %d\n", len(i.ctx.idToSnowflake))
+
 	for _, snowflake := range i.ctx.idToSnowflake {
 		if messages.KnownProxyTypes[snowflake.proxyType] {
 			proxyTypes[snowflake.proxyType]++
@@ -105,7 +106,8 @@ func (i *IPC) ProxyPolls(arg messages.Arg, response *[]byte) error {
 	var b []byte
 
 	// Wait for a client to avail an offer to the snowflake, or timeout if nil.
-	offer := i.ctx.RequestOffer(sid, proxyType, natType, clients)
+	poll := NewProxyPoll(sid, proxyType, natType, clients)
+	offer := i.ctx.RequestOffer(poll)
 
 	if offer == nil {
 		i.ctx.metrics.IncrementCounter("proxy-idle")
@@ -195,7 +197,7 @@ func (i *IPC) ClientOffers(arg messages.Arg, response *[]byte) error {
 
 	offer.fingerprint = BridgeFingerprint.ToBytes()
 
-	snowflake := i.matchSnowflake(offer.natType)
+	snowflake := i.matchSnowflake(*offer)
 	if snowflake != nil {
 		snowflake.offerChannel <- offer
 	} else {
@@ -224,19 +226,24 @@ func (i *IPC) ClientOffers(arg messages.Arg, response *[]byte) error {
 	return err
 }
 
-func (i *IPC) matchSnowflake(natType string) *Snowflake {
-	i.ctx.snowflakeLock.Lock()
-	defer i.ctx.snowflakeLock.Unlock()
-
-	// Proiritize known restricted snowflakes for unrestricted clients
-	if natType == NATUnrestricted && i.ctx.restrictedSnowflakes.Len() > 0 {
-		return heap.Pop(i.ctx.restrictedSnowflakes).(*Snowflake)
+func (i *IPC) matchSnowflake(offer ClientOffer) *Snowflake {
+	//prioritize a proxy from the restricted pool, if compatible
+	pool := i.ctx.restrictedPool
+	pool.lock.Lock()
+	if pool.Match(offer) && pool.Len() > 0 {
+		snowflake := heap.Pop(pool).(*Snowflake)
+		pool.lock.Unlock()
+		return snowflake
 	}
-
-	if i.ctx.snowflakes.Len() > 0 {
-		return heap.Pop(i.ctx.snowflakes).(*Snowflake)
+	pool.lock.Unlock()
+	pool = i.ctx.unrestrictedPool
+	pool.lock.Lock()
+	if pool.Match(offer) && pool.Len() > 0 {
+		snowflake := heap.Pop(pool).(*Snowflake)
+		pool.lock.Unlock()
+		return snowflake
 	}
-
+	pool.lock.Unlock()
 	return nil
 }
 
