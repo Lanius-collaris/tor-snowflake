@@ -100,7 +100,7 @@ variables:
 
 # -- jobs ------------------------------------------------------------
 
-android:
+.android:
   image: ${DOCKER_REGISTRY_URL}/golang:1.25-$DEBIAN_STABLE
   variables:
     ANDROID_HOME: /usr/lib/android-sdk
@@ -153,28 +153,38 @@ android:
     - go get golang.org/x/mobile/bind
     - gomobile bind -v -target=android $REPRODUCIBLE_FLAGS .
 
-go-1.23:
+go-1.22-client:
+  image: ${DOCKER_REGISTRY_URL}/golang:1.22-$DEBIAN_STABLE
+  <<: *golang-docker-debian-template
+  <<: *test-template
+  script:
+    - go test -v -race ./client/...
+    - cd $CI_PROJECT_DIR/client/
+    - go get
+    - go build $REPRODUCIBLE_FLAGS
+
+.go-1.23:
   image: ${DOCKER_REGISTRY_URL}/golang:1.23-$DEBIAN_STABLE
   <<: *golang-docker-debian-template
   <<: *test-template
   script:
     - *go-test
 
-go-1.24:
+.go-1.24:
   image: ${DOCKER_REGISTRY_URL}/golang:1.24-$DEBIAN_STABLE
   <<: *golang-docker-debian-template
   <<: *test-template
   script:
     - *go-test
 
-debian-testing:
+.debian-testing:
   image: containers.torproject.org/tpo/tpa/base-images/debian:testing
   <<: *debian-native-template
   <<: *test-template
   script:
     - *go-test
 
-shadow-integration:
+.shadow-integration:
   image: ${DOCKER_REGISTRY_URL}/golang:1.23-$DEBIAN_STABLE
   variables:
     SHADOW_VERSION: "27d0bcf2cf1c7f0d403b6ad3efd575e45ae93126"
