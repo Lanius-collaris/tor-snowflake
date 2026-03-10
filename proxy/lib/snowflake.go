@@ -450,6 +450,8 @@ func (sf *SnowflakeProxy) makeWebRTCAPI() *webrtc.API {
 		}
 	}
 
+	settingsEngine.SetSCTPMaxReceiveBufferSize(4*1024*1024)
+
 	return webrtc.NewAPI(webrtc.WithSettingEngine(settingsEngine))
 }
 
