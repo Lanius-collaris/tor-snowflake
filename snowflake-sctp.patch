@@ -418,10 +418,10 @@ index 20c4792..6392d62 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..2a155ee
+index 0000000..b872e98
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,744 @@
+@@ -0,0 +1,748 @@
 +package cc_alg
 +
 +import (
@@ -537,6 +537,7 @@ index 0000000..2a155ee
 +type FRCC struct {
 +	Param FRCCParam
 +
++	ID          uint32
 +	LastLogTime time.Time
 +
 +	// State variables
@@ -646,6 +647,9 @@ index 0000000..2a155ee
 +	frcc := FRCC{
 +		Param: config,
 +
++		ID:          rand.Uint32(),
++		LastLogTime: time.Time{},
++
 +		// TODO: we should reset this at some time to accommodate path changes.
 +		MinRTProp:      math.MaxUint32 * time.Microsecond,
 +		CWND:           config.LBCwnd,
@@ -691,7 +695,7 @@ index 0000000..2a155ee
 +	}
 +
 +	if frcc.PacingRate == 0 {
-+		log.Printf("%#v", frcc)
++		log.Printf("id 0x%x, %#v", frcc.ID, frcc)
 +	}
 +}
 +func (frcc *FRCC) updateEstimates(rttSample time.Duration, now time.Time) {
@@ -1050,7 +1054,7 @@ index 0000000..2a155ee
 +	if now.Sub(frcc.LastLogTime) > time.Second {
 +		frcc.LastLogTime = now
 +		rate1 := int64(frcc.CWND) * 1000000 / rttSample.Microseconds()
-+		log.Printf("SlotMaxQDel %v, SlotMaxRate %v, SlotMinRTT %v, SlotMaxRTT %v, current rate %v bytes/s\n", frcc.SlotMaxQDel, frcc.SlotMaxRate, frcc.SlotMinRTT, frcc.SlotMaxRTT, rate1)
++		log.Printf("id 0x%x, SlotMaxQDel %v, SlotMinRTT %v, SlotMaxRTT %v, CWND %d, current rate %v bytes/s\n", frcc.ID, frcc.SlotMaxQDel, frcc.SlotMinRTT, frcc.SlotMaxRTT, frcc.CWND, rate1)
 +	}
 +
 +	if probe.Ongoing {
@@ -1138,7 +1142,7 @@ index 0000000..2a155ee
 +			srttUs := max(smoothedRTT.Microseconds(), 1)
 +			r1 := 2 * int64(frcc.CWND) * 1000 / srttUs
 +			if r1 > math.MaxUint32 {
-+				log.Printf("PacingRate > MaxUint32: %v", r1)
++				log.Printf("id 0x%x, PacingRate > MaxUint32: %v", frcc.ID, r1)
 +			}
 +			frcc.PacingRate = uint32(r1)
 +		} // updatePacingRate() will update frcc.PacingRate
@@ -1153,7 +1157,7 @@ index 0000000..2a155ee
 +	} else {
 +		willSend = frcc.SentInSlot + max(bytes, CalcSendQuantum(frcc.PacingRate, 1500, frcc.Param.PacingQuantum))
 +		if frcc.PacingRate == 0 {
-+			log.Printf("%#v", frcc)
++			log.Printf("id 0x%x, %#v", frcc.ID, frcc)
 +		}
 +		duration := time.Duration(willSend*1000/frcc.PacingRate) * time.Microsecond
 +		next := frcc.PacingSlotStart.Add(duration)
