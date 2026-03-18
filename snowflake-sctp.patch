@@ -1,3 +1,19 @@
+diff --git a/ack_timer.go b/ack_timer.go
+index 868cbc0..8dd8f92 100644
+--- a/ack_timer.go
++++ b/ack_timer.go
+@@ -10,7 +10,10 @@ import (
+ )
+ 
+ const (
+-	ackInterval time.Duration = 200 * time.Millisecond
++	//We use pacing instead of some burst mitigation that relies on ack
++	ackInterval time.Duration = 16 * time.Millisecond
++	/*The story behind the fixed 200ms ACK delay timer
++	https://news.ycombinator.com/item?id=9050645 */
+ )
+ 
+ // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
 index d1c3746..fc5991c 100644
 --- a/association.go
@@ -467,7 +483,7 @@ index 20c4792..6392d62 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..4aab034
+index 0000000..4703d7e
 --- /dev/null
 +++ b/cc_alg/frcc.go
 @@ -0,0 +1,753 @@
@@ -845,7 +861,7 @@ index 0000000..4aab034
 +	pr.MinRTTBefore = slotMinRTT
 +	pr.MinRTT = math.MaxUint32 * time.Microsecond
 +	pr.MinExcessDelay = math.MaxUint32 * time.Microsecond
-+	pr.PrevCwnd = frcc.CWND
++	pr.PrevCwnd = max(frcc.CWND, frcc.PrevCwnd)
 +	pr.Excess = frcc.getProbeExcess()
 +	pr.EndInitiated = false
 +	pr.Drain = 0
@@ -1052,7 +1068,7 @@ index 0000000..4aab034
 +		rp.PrevStartTime = frcc.getRProbeTime(now)
 +		rp.StartTime = now
 +		rp.InitEndTime = time.Time{}
-+		rp.PrevCwnd = frcc.CWND
++		rp.PrevCwnd = max(frcc.CWND, frcc.PrevCwnd)
 +
 +		probe := &frcc.ProbeData
 +		if probe.Ongoing {
