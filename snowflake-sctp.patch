@@ -15,7 +15,7 @@ index 868cbc0..8dd8f92 100644
  
  // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
-index d1c3746..fc5991c 100644
+index d1c3746..bd1d158 100644
 --- a/association.go
 +++ b/association.go
 @@ -18,6 +18,7 @@ import (
@@ -89,7 +89,15 @@ index d1c3746..fc5991c 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -1384,8 +1399,8 @@ func (a *Association) gatherOutbound() ([][]byte, bool) {
+@@ -1239,6 +1254,7 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
+ 		}
+ 		rawPackets = append(rawPackets, raw)
+ 	}
++	a.CC1.OnSend(uint32(totalBytes), true)
+ 
+ 	return rawPackets
+ }
+@@ -1384,8 +1400,8 @@ func (a *Association) gatherOutbound() ([][]byte, bool) {
  		consumed := false
  
  		rawPackets = a.gatherDataPacketsToRetransmit(rawPackets, &budgetUnits, &consumed)
@@ -99,7 +107,7 @@ index d1c3746..fc5991c 100644
  
  		// control traffic shouldn't be limited.
  		rawPackets = a.gatherOutboundSackPackets(rawPackets)
-@@ -2079,18 +2094,21 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2079,18 +2095,21 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  	newestDeliveredSendTime time.Time,
  	newestDeliveredOrigTSN uint32,
  	deliveredFound bool,
@@ -122,7 +130,7 @@ index d1c3746..fc5991c 100644
  		}
  
  		// RACK: remove from xmit-time list since it's delivered
-@@ -2129,10 +2147,15 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2129,10 +2148,15 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  				// Only original transmissions for classic RTT measurement (Karn's rule)
  				if chunkPayload.nSent == 1 {
  					a.minTSN2MeasureRTT = a.myNextTSN
@@ -140,7 +148,7 @@ index d1c3746..fc5991c 100644
  					// use a window to determine minRtt instead of a global min
  					// as the RTT can fluctuate, which can cause problems if going from a
  					// high RTT to a low RTT.
-@@ -2141,6 +2164,9 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2141,6 +2165,9 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  					a.log.Tracef("[%s] SACK: measured-rtt=%f srtt=%f new-rto=%f",
  						a.name, rtt, srtt, a.rtoMgr.getRTO())
  				}
@@ -150,7 +158,7 @@ index d1c3746..fc5991c 100644
  			}
  
  			// RFC 8985 (RACK) sec 5.2: RACK.segment is the most recently sent
-@@ -2155,6 +2181,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2155,6 +2182,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  		if a.inFastRecovery && chunkPayload.tsn == a.fastRecoverExitPoint {
  			a.log.Debugf("[%s] exit fast-recovery", a.name)
  			a.inFastRecovery = false
@@ -158,7 +166,7 @@ index d1c3746..fc5991c 100644
  		}
  	}
  
-@@ -2166,7 +2193,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2166,7 +2194,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  			tsn := selectiveAckChunk.cumulativeTSNAck + uint32(i)
  			chunkPayload, ok := a.inflightQueue.get(tsn)
  			if !ok {
@@ -167,7 +175,7 @@ index d1c3746..fc5991c 100644
  			}
  
  			// RACK: remove from xmit-time list since it's delivered
-@@ -2189,15 +2216,23 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2189,15 +2217,23 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  					// Only original transmissions for classic RTT measurement
  					if chunkPayload.nSent == 1 {
  						a.minTSN2MeasureRTT = a.myNextTSN
@@ -193,7 +201,7 @@ index d1c3746..fc5991c 100644
  				}
  
  				if chunkPayload.since.After(newestDeliveredSendTime) {
-@@ -2213,11 +2248,11 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2213,11 +2249,11 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  		}
  	}
  
@@ -207,7 +215,7 @@ index d1c3746..fc5991c 100644
  	// RFC 4960, sec 6.3.2.  Retransmission Timer Rules
  	//   R2)  Whenever all outstanding data sent to an address have been
  	//        acknowledged, turn off the T3-rtx timer of that address.
-@@ -2231,51 +2266,8 @@ func (a *Association) onCumulativeTSNAckPointAdvanced(totalBytesAcked int) {
+@@ -2231,51 +2267,8 @@ func (a *Association) onCumulativeTSNAckPointAdvanced(totalBytesAcked int) {
  		a.t3RTX.start(a.rtoMgr.getRTO())
  	}
  
@@ -261,7 +269,7 @@ index d1c3746..fc5991c 100644
  }
  
  // The caller should hold the lock.
-@@ -2323,19 +2315,20 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
+@@ -2323,19 +2316,20 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
  						a.tlrApplyAdditionalLossLocked(time.Now())
  					}
  
@@ -285,7 +293,7 @@ index d1c3746..fc5991c 100644
  					}
  				}
  			}
-@@ -2384,7 +2377,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2384,7 +2378,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  	// Process selective ack
  	bytesAckedPerStream, htna,
  		newestDeliveredSendTime, newestDeliveredOrigTSN,
@@ -294,7 +302,7 @@ index d1c3746..fc5991c 100644
  	if err != nil {
  		return err
  	}
-@@ -2403,7 +2396,8 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2403,7 +2397,8 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  
  		a.cumulativeTSNAckPoint = selectiveAckChunk.cumulativeTSNAck
  		cumTSNAckPointAdvanced = true
@@ -304,7 +312,7 @@ index d1c3746..fc5991c 100644
  	}
  
  	for si, nBytesAcked := range bytesAckedPerStream {
-@@ -2869,6 +2863,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2869,6 +2864,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  
  	// track current packet size for MTU bundling so budgeting is accurate.
  	bytesInPacket := 0
@@ -312,7 +320,7 @@ index d1c3746..fc5991c 100644
  
  	if a.pendingQueue.size() > 0 { //nolint:nestif
  		// RFC 4960 sec 6.1.  Transmission of DATA Chunks
-@@ -2879,6 +2874,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2879,6 +2875,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  		//      is 0), the data sender can always have one DATA chunk in flight to
  		//      the receiver if allowed by cwnd (see rule B, below).
  
@@ -321,7 +329,7 @@ index d1c3746..fc5991c 100644
  		for {
  			chunkPayload := a.pendingQueue.peek()
  			if chunkPayload == nil {
-@@ -2917,9 +2914,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2917,9 +2915,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for common header + first chunk.
@@ -337,7 +345,7 @@ index d1c3746..fc5991c 100644
  
  				bytesInPacket = int(commonHeaderSize)
  			} else {
-@@ -2931,9 +2933,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2931,9 +2934,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for the additional chunk bytes.
@@ -353,7 +361,7 @@ index d1c3746..fc5991c 100644
  			}
  
  			a.setRWND(a.RWND() - dataLen)
-@@ -2953,14 +2960,24 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2953,14 +2961,24 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				chunkBytes += getPadding(chunkBytes)
  				addBytes := int(commonHeaderSize) + chunkBytes
  
@@ -376,12 +384,12 @@ index d1c3746..fc5991c 100644
  		}
  	}
  
-+	a.CC1.OnSend(uint32(totalBytes))
++	a.CC1.OnSend(uint32(totalBytes), false)
 +
  	if a.blockWrite && len(chunks) > 0 && a.pendingQueue.size() == 0 {
  		a.log.Tracef("[%s] all pending data have been sent, notify writable", a.name)
  		a.notifyBlockWritable()
-@@ -3094,6 +3111,8 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3094,6 +3112,8 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  	bytesInPacket := 0
  
@@ -390,7 +398,7 @@ index d1c3746..fc5991c 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -3128,9 +3147,14 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3128,9 +3148,14 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			}
  
  			// burst budget gate before mutating the chunk.
@@ -406,7 +414,15 @@ index d1c3746..fc5991c 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -3194,35 +3218,29 @@ func pack(p *packet) []*packet {
+@@ -3158,6 +3183,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+ 
+ 		chunks = append(chunks, chunkPayload)
+ 	}
++	a.CC1.OnSend(uint32(totalBytes), true)
+ 
+ 	return a.bundleDataChunksIntoPackets(chunks)
+ }
+@@ -3194,35 +3220,29 @@ func pack(p *packet) []*packet {
  	return []*packet{p}
  }
  
@@ -446,7 +462,7 @@ index d1c3746..fc5991c 100644
  	var packets []*packet
  	var err error
  
-@@ -3360,16 +3378,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
+@@ -3360,16 +3380,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
  		//      ssthresh = max(cwnd/2, 4*MTU)
  		//      cwnd = 1*MTU
  
@@ -483,10 +499,10 @@ index 20c4792..6392d62 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..4703d7e
+index 0000000..621e034
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,753 @@
+@@ -0,0 +1,766 @@
 +package cc_alg
 +
 +import (
@@ -543,7 +559,7 @@ index 0000000..4703d7e
 +		UBCwnd:              32 * 1024 * 1024,
 +		ContractMinQDel:     10 * time.Millisecond,
 +		ProbeDuration:       10 * time.Millisecond,
-+		ProbeMultiplier:     4.0, //gamma in the paper
++		ProbeMultiplier:     2.0, //gamma in the paper
 +		CwndAveragingFactor: 1.0, // alpha = 1/2 for non-stable design, otherwise 1.
 +		CwndClampHi:         1.3,
 +		CwndClampLo:         10.0 / 13.0,
@@ -582,6 +598,7 @@ index 0000000..4703d7e
 +	BytesAcked         uint64
 +	InflightMatchBytes uint64
 +	BytesSent          uint64
++	SentBeforeMeasure  uint64
 +	FirstTime          time.Time
 +	AllSent            bool
 +}
@@ -619,12 +636,11 @@ index 0000000..4703d7e
 +	SSSentBytes    uint64
 +	SSAckedBytes   uint64
 +
-+	SlotMaxQDel    time.Duration
-+	SlotStartTime  time.Time
-+	SlotAckedBytes uint64
-+	SlotMaxRate    uint32        // for logging only
-+	SlotMinRTT     time.Duration // for logging only
-+	SlotMaxRTT     time.Duration // for logging only
++	SlotMaxQDel   time.Duration
++	SlotStartTime time.Time
++	SlotMaxRate   uint32        // for logging only
++	SlotMinRTT    time.Duration // for logging only
++	SlotMaxRTT    time.Duration // for logging only
 +
 +	PacingSlotStart time.Time
 +	PacingSlotEnd   time.Time
@@ -684,6 +700,7 @@ index 0000000..4703d7e
 +	pr.BytesAcked = 0
 +	pr.InflightMatchBytes = 0
 +	pr.BytesSent = 0
++	pr.SentBeforeMeasure = 0
 +	pr.FirstTime = time.Time{}
 +	pr.AllSent = false
 +}
@@ -699,7 +716,6 @@ index 0000000..4703d7e
 +func (frcc *FRCC) startNewSlot(now time.Time) {
 +	frcc.SlotMaxQDel = 0
 +	frcc.SlotStartTime = now
-+	frcc.SlotAckedBytes = 0
 +	frcc.SlotMaxRate = 0
 +	frcc.SlotMinRTT = math.MaxUint32 * time.Microsecond
 +	frcc.SlotMaxRTT = 0
@@ -744,7 +760,14 @@ index 0000000..4703d7e
 +}
 +func (frcc *FRCC) partOfProbe() bool {
 +	p := &frcc.ProbeData
-+	return p.BytesAcked <= p.BytesSent
++	if p.SentBeforeMeasure > 0 {
++		if p.AllSent {
++			return p.BytesAcked <= p.BytesSent
++		} else {
++			return p.BytesAcked >= p.SentBeforeMeasure
++		}
++	}
++	return false
 +}
 +func (frcc *FRCC) getInitialRTT() time.Duration {
 +	// Get initial RTT - as measured by INIT -> INIT ACK.  If information
@@ -767,10 +790,10 @@ index 0000000..4703d7e
 +		log.Printf("id 0x%x, %#v", frcc.ID, frcc)
 +	}
 +}
-+func (frcc *FRCC) updateEstimates(rttSample time.Duration, now time.Time) {
++func (frcc *FRCC) updateEstimates(rttSample time.Duration) {
 +	initRTT := frcc.getInitialRTT()
-+	sinceStart := max(uint64(now.Sub(frcc.SlotStartTime).Microseconds()), 1)
-+	thisRate := uint32(frcc.SlotAckedBytes * 1000 / sinceStart)
++	// TODO: Should we use the delivered bytes instead of CWND?
++	thisRate := uint32(int64(frcc.CWND) * 1000 / rttSample.Microseconds())
 +
 +	frcc.MinRTProp = min(frcc.MinRTProp, initRTT)
 +	frcc.MinRTProp = min(frcc.MinRTProp, rttSample)
@@ -794,7 +817,7 @@ index 0000000..4703d7e
 +}
 +func (frcc *FRCC) probeEnded() bool {
 +	p := &frcc.ProbeData
-+	return p.BytesAcked >= p.BytesSent
++	return p.AllSent && p.BytesAcked >= p.BytesSent
 +}
 +func (frcc *FRCC) cruiseEnded(now time.Time) bool {
 +	param := &frcc.Param
@@ -870,12 +893,14 @@ index 0000000..4703d7e
 +	pr.StartTime = now
 +	pr.BytesAcked = 0
 +	pr.InflightMatchBytes = 0
-+	pr.BytesSent = 0
++	pr.BytesSent = uint64(pr.PrevCwnd)
++	pr.SentBeforeMeasure = 0
 +	pr.FirstTime = time.Time{}
 +	pr.AllSent = false
 +
 +	frcc.CWND += pr.Excess
 +	frcc.updatePacingRate(rtt, true)
++	//log.Printf("start probe, cwnd %d, now %v", frcc.CWND, now)
 +}
 +func (frcc *FRCC) updateCwndDrain(rtt time.Duration, ackedBytes uint32) {
 +	param := frcc.Param
@@ -932,24 +957,28 @@ index 0000000..4703d7e
 +		// last packet of new cwnd sent at time old_rtt/2.
 +		// Conservatively, we wait a full (packet timed) new RTT.
 +		// Alternatively, we can just check inflight = cwnd.
-+		if probe.BytesSent > 0 {
++		if probe.BytesAcked >= uint64(probe.PrevCwnd) {
 +			frcc.updatePacingRate(rtt, false)
 +			probe.InflightMatchBytes = probe.BytesSent
 +			if !param.WaitRTTAfterProbe {
++				probe.SentBeforeMeasure = probe.BytesSent
 +				probe.FirstTime = now
 +			}
++			//log.Printf("set InflightMatchBytes, now %v", now)
 +		}
-+	} else if probe.BytesSent == 0 {
-+		if probe.BytesAcked > probe.InflightMatchBytes {
++	} else if probe.SentBeforeMeasure == 0 {
++		if probe.BytesAcked >= probe.InflightMatchBytes {
 +			if !param.ProbeWaitInMaxRTTs || now.Sub(waitUntil) >= 0 {
-+				probe.BytesSent = probe.BytesAcked
++				probe.SentBeforeMeasure = probe.BytesSent
 +				probe.FirstTime = now
++				//log.Printf("set SentBeforeMeasure, now %v", now)
 +			}
 +		}
 +	} else if !probe.AllSent {
 +		sendEndTime := probe.FirstTime.Add(probeDuration)
 +		if sendEndTime.Sub(now) <= 0 {
 +			probe.AllSent = true
++			//log.Printf("set AllSent, now %v", now)
 +		}
 +	}
 +}
@@ -960,11 +989,8 @@ index 0000000..4703d7e
 +	tcwndHiClamp := prevCwnd * param.CwndClampHi
 +	tcwndLoClamp := prevCwnd * param.CwndClampLo
 +
-+	bwEstimate := int64(math.MaxInt64)
-+	minExcessDelayUs := probe.MinExcessDelay.Microseconds()
-+	if minExcessDelayUs > 0 {
-+		bwEstimate = int64(probe.Excess) * 1000 / minExcessDelayUs
-+	}
++	minExcessDelayUs := max(probe.MinExcessDelay.Microseconds(), 1)
++	bwEstimate := int64(probe.Excess) * 1000 / minExcessDelayUs
 +
 +	round := &frcc.RoundData
 +	flowCountBelief := float32(param.UBFlowCount)
@@ -976,6 +1002,7 @@ index 0000000..4703d7e
 +
 +	targetCwnd := float32(0.0)
 +	targetFlowCount := frcc.getTargetFlowCount()
++	//log.Printf("minExcessDelayUs %v, bwEstimate %v, round.MaxRate %v, flowCountBelief %v, targetFlowCount %v", minExcessDelayUs, bwEstimate, round.MaxRate, flowCountBelief, targetFlowCount)
 +	if targetFlowCount < 1 || round.MaxRate == 0 {
 +		targetCwnd = prevCwnd * param.CwndClampHi
 +	} else {
@@ -1039,6 +1066,7 @@ index 0000000..4703d7e
 +			frcc.SSDone = true
 +			frcc.resetRoundState()
 +			frcc.startNewSlot(now)
++			//log.Printf("slow start done, now %v", now)
 +		} // ss end initiated but not yet ended. do nothing.
 +	}
 +}
@@ -1109,7 +1137,6 @@ index 0000000..4703d7e
 +
 +// implement CongestionController
 +func (frcc *FRCC) OnACK(ackedBytes uint32, rttSample time.Duration, smoothedRTT time.Duration) {
-+	frcc.SlotAckedBytes += uint64(ackedBytes)
 +	probe := &frcc.ProbeData
 +	if rttSample.Microseconds() <= 0 {
 +		//log.Printf("rttSample=%v <= 0us, ackedBytes %v, smoothedRTT %v", rttSample, ackedBytes, smoothedRTT)
@@ -1119,7 +1146,7 @@ index 0000000..4703d7e
 +	now := time.Now()
 +	slotMinRTT := frcc.SlotMinRTT
 +
-+	frcc.updateEstimates(rttSample, now)
++	frcc.updateEstimates(rttSample)
 +
 +	if now.Sub(frcc.LastLogTime) > time.Second {
 +		frcc.LastLogTime = now
@@ -1171,22 +1198,24 @@ index 0000000..4703d7e
 +		round.SlotsTillNow += 1
 +	}
 +}
-+func (frcc *FRCC) OnSend(bytes uint32) {
++func (frcc *FRCC) OnSend(bytes uint32, isRetransmission bool) {
 +	frcc.SentInSlot += bytes
 +	pr := &frcc.ProbeData
-+	if pr.Ongoing {
-+		pr.BytesSent += uint64(bytes)
-+	}
-+	if !frcc.SSEndInitiated {
-+		frcc.SSSentBytes += uint64(bytes)
++	if !isRetransmission {
++		if pr.Ongoing && !pr.AllSent {
++			pr.BytesSent += uint64(bytes)
++		}
++		if !frcc.SSEndInitiated {
++			frcc.SSSentBytes += uint64(bytes)
++		}
 +	}
 +}
 +func (frcc *FRCC) OnLoss() {
-+	if !frcc.InFastRecovery {
++	/*if !frcc.InFastRecovery {
 +		frcc.InFastRecovery = true
 +		frcc.PrevCwnd = frcc.CWND
 +		frcc.CWND = max(frcc.CWND/2, frcc.Param.LBCwnd)
-+	}
++	}*/
 +}
 +func (frcc *FRCC) OnTimeout() {
 +	frcc.OnLoss()
@@ -1235,14 +1264,14 @@ index 0000000..4703d7e
 +	}
 +}
 +func (frcc *FRCC) SetFastRecovery(v bool) {
-+	if !v {
++	/*if !v {
 +		frcc.InFastRecovery = false
 +		frcc.CWND = max(frcc.CWND, frcc.PrevCwnd)
-+	}
++	}*/
 +}
 diff --git a/cc_alg/reno.go b/cc_alg/reno.go
 new file mode 100644
-index 0000000..b818ac4
+index 0000000..6efea3b
 --- /dev/null
 +++ b/cc_alg/reno.go
 @@ -0,0 +1,97 @@
@@ -1296,7 +1325,7 @@ index 0000000..b818ac4
 +		}
 +	}
 +}
-+func (reno *Reno) OnSend(bytes uint32) {
++func (reno *Reno) OnSend(bytes uint32, isRetransmission bool) {
 +	reno.SentInSlot += bytes
 +}
 +func (reno *Reno) OnLoss() {
@@ -1359,7 +1388,7 @@ index 0000000..b9bf0f2
 +}
 diff --git a/congestion_control.go b/congestion_control.go
 new file mode 100644
-index 0000000..ad7c883
+index 0000000..cbbda41
 --- /dev/null
 +++ b/congestion_control.go
 @@ -0,0 +1,16 @@
@@ -1371,7 +1400,7 @@ index 0000000..ad7c883
 +
 +type CongestionController interface {
 +	OnACK(ackedBytes uint32, rttSample time.Duration, smoothedRTT time.Duration)
-+	OnSend(bytes uint32)
++	OnSend(bytes uint32, isRetransmission bool)
 +	OnLoss()
 +	OnTimeout()
 +	GetWindow() uint32
