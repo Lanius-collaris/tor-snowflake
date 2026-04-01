@@ -15,7 +15,7 @@ index 868cbc0..8dd8f92 100644
  
  // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
-index d1c3746..bd1d158 100644
+index d1c3746..f4e396a 100644
 --- a/association.go
 +++ b/association.go
 @@ -18,6 +18,7 @@ import (
@@ -302,17 +302,27 @@ index d1c3746..bd1d158 100644
  	if err != nil {
  		return err
  	}
-@@ -2403,7 +2397,8 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2395,6 +2389,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+ 	}
+ 
+ 	cumTSNAckPointAdvanced := false
++	srtt := time.Duration(a.SRTT()*1000.0) * time.Microsecond
+ 	if sna32LT(a.cumulativeTSNAckPoint, selectiveAckChunk.cumulativeTSNAck) {
+ 		a.log.Tracef("[%s] SACK: cumTSN advanced: %d -> %d",
+ 			a.name,
+@@ -2403,7 +2398,10 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  
  		a.cumulativeTSNAckPoint = selectiveAckChunk.cumulativeTSNAck
  		cumTSNAckPointAdvanced = true
 -		a.onCumulativeTSNAckPointAdvanced(totalBytesAcked)
-+		srtt := time.Duration(a.SRTT()*1000.0) * time.Microsecond
 +		a.onCumulativeTSNAckPointAdvanced(totalBytesAcked, rttSample, srtt)
++	} else {
++		a.CC1.OnACK(uint32(totalBytesAcked), rttSample, srtt)
++		a.setCWND(a.CC1.GetWindow())
  	}
  
  	for si, nBytesAcked := range bytesAckedPerStream {
-@@ -2869,6 +2864,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2869,6 +2867,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  
  	// track current packet size for MTU bundling so budgeting is accurate.
  	bytesInPacket := 0
@@ -320,7 +330,7 @@ index d1c3746..bd1d158 100644
  
  	if a.pendingQueue.size() > 0 { //nolint:nestif
  		// RFC 4960 sec 6.1.  Transmission of DATA Chunks
-@@ -2879,6 +2875,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2879,6 +2878,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  		//      is 0), the data sender can always have one DATA chunk in flight to
  		//      the receiver if allowed by cwnd (see rule B, below).
  
@@ -329,7 +339,7 @@ index d1c3746..bd1d158 100644
  		for {
  			chunkPayload := a.pendingQueue.peek()
  			if chunkPayload == nil {
-@@ -2917,9 +2915,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2917,9 +2918,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for common header + first chunk.
@@ -345,7 +355,7 @@ index d1c3746..bd1d158 100644
  
  				bytesInPacket = int(commonHeaderSize)
  			} else {
-@@ -2931,9 +2934,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2931,9 +2937,14 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for the additional chunk bytes.
@@ -361,7 +371,7 @@ index d1c3746..bd1d158 100644
  			}
  
  			a.setRWND(a.RWND() - dataLen)
-@@ -2953,14 +2961,24 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2953,14 +2964,24 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				chunkBytes += getPadding(chunkBytes)
  				addBytes := int(commonHeaderSize) + chunkBytes
  
@@ -389,7 +399,7 @@ index d1c3746..bd1d158 100644
  	if a.blockWrite && len(chunks) > 0 && a.pendingQueue.size() == 0 {
  		a.log.Tracef("[%s] all pending data have been sent, notify writable", a.name)
  		a.notifyBlockWritable()
-@@ -3094,6 +3112,8 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3094,6 +3115,8 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  	bytesInPacket := 0
  
@@ -398,7 +408,7 @@ index d1c3746..bd1d158 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -3128,9 +3148,14 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3128,9 +3151,14 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			}
  
  			// burst budget gate before mutating the chunk.
@@ -414,7 +424,7 @@ index d1c3746..bd1d158 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -3158,6 +3183,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3158,6 +3186,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  		chunks = append(chunks, chunkPayload)
  	}
@@ -422,7 +432,7 @@ index d1c3746..bd1d158 100644
  
  	return a.bundleDataChunksIntoPackets(chunks)
  }
-@@ -3194,35 +3220,29 @@ func pack(p *packet) []*packet {
+@@ -3194,35 +3223,29 @@ func pack(p *packet) []*packet {
  	return []*packet{p}
  }
  
@@ -462,7 +472,7 @@ index d1c3746..bd1d158 100644
  	var packets []*packet
  	var err error
  
-@@ -3360,16 +3380,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
+@@ -3360,16 +3383,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
  		//      ssthresh = max(cwnd/2, 4*MTU)
  		//      cwnd = 1*MTU
  
@@ -499,10 +509,10 @@ index 20c4792..6392d62 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..621e034
+index 0000000..ec5549b
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,766 @@
+@@ -0,0 +1,772 @@
 +package cc_alg
 +
 +import (
@@ -631,6 +641,8 @@ index 0000000..621e034
 +	UBCwnd         uint32 // if the probe size is too small, CWND may slowly but infinitely increase
 +	InFastRecovery bool
 +
++	LastRTTSample time.Duration // sometimes we don't get a valid RTT sample
++
 +	SSDone         bool
 +	SSEndInitiated bool
 +	SSSentBytes    uint64
@@ -740,6 +752,8 @@ index 0000000..621e034
 +		PrevCwnd:       config.LBCwnd,
 +		UBCwnd:         config.UBCwnd,
 +		InFastRecovery: false,
++
++		LastRTTSample: math.MaxUint32 * time.Microsecond,
 +
 +		SSDone:         false,
 +		SSEndInitiated: false,
@@ -1140,7 +1154,9 @@ index 0000000..621e034
 +	probe := &frcc.ProbeData
 +	if rttSample.Microseconds() <= 0 {
 +		//log.Printf("rttSample=%v <= 0us, ackedBytes %v, smoothedRTT %v", rttSample, ackedBytes, smoothedRTT)
-+		return
++		rttSample = frcc.LastRTTSample
++	} else {
++		frcc.LastRTTSample = rttSample
 +	}
 +
 +	now := time.Now()
