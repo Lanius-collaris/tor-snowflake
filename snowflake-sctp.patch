@@ -509,10 +509,10 @@ index 20c4792..6392d62 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..ec5549b
+index 0000000..a69dd20
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,772 @@
+@@ -0,0 +1,773 @@
 +package cc_alg
 +
 +import (
@@ -1017,7 +1017,8 @@ index 0000000..ec5549b
 +	targetCwnd := float32(0.0)
 +	targetFlowCount := frcc.getTargetFlowCount()
 +	//log.Printf("minExcessDelayUs %v, bwEstimate %v, round.MaxRate %v, flowCountBelief %v, targetFlowCount %v", minExcessDelayUs, bwEstimate, round.MaxRate, flowCountBelief, targetFlowCount)
-+	if targetFlowCount < 1 || round.MaxRate == 0 {
++	// 1/256 = 0.00390625
++	if targetFlowCount < 0.00390625 || round.MaxRate == 0 {
 +		targetCwnd = prevCwnd * param.CwndClampHi
 +	} else {
 +		if param.UseStableCwndUpdate {
