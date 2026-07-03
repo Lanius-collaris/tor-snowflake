@@ -87,5 +87,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/refraction-networking/utls v1.6.7 => gitlab.torproject.org/shelikhoo/utls-temporary v0.0.0-20260114141111-0f042ad603ef
 replace github.com/pion/sctp v1.9.2 => ../sctp-6fcb82c121a894af4341243c7d502bc415547b26
