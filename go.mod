@@ -86,4 +86,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/pion/sctp v1.9.2 => ../sctp-6fcb82c121a894af4341243c7d502bc415547b26
+replace github.com/pion/sctp v1.11.1 => ../sctp-37fef17855bc720b31c09e8c8643aa67122aff7e
