@@ -15,7 +15,7 @@ index 868cbc0..8dd8f92 100644
  
  // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
-index 486c6d2..85cb81a 100644
+index 486c6d2..60f598d 100644
 --- a/association.go
 +++ b/association.go
 @@ -19,6 +19,7 @@ import (
@@ -80,7 +80,7 @@ index 486c6d2..85cb81a 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -1486,13 +1496,23 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
+@@ -1486,13 +1496,26 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
  
  		chunkBytes := chunkPayload.chunkSizeInPacket()
  
@@ -93,6 +93,9 @@ index 486c6d2..85cb81a 100644
 +		}*/
 +		canSend, next := a.CC1.CanSend(totalBytes+dataLen, srtt)
 +		if !canSend {
++			if len(toFastRetrans) < 1 {
++				a.willRetransmitFast = true
++			}
 +			time.AfterFunc(next.Sub(now), func() {
 +				a.awakeWriteLoop()
 +			})
@@ -106,7 +109,7 @@ index 486c6d2..85cb81a 100644
  			addBytes := chunkBytes
  
  			if bytesInPacket == 0 {
-@@ -1509,13 +1529,6 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
+@@ -1509,13 +1532,6 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
  				continue
  			}
  
@@ -120,7 +123,7 @@ index 486c6d2..85cb81a 100644
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
  			}
-@@ -1526,7 +1539,7 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
+@@ -1526,7 +1542,7 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
  
  		if stopBundling {
  			break
@@ -129,7 +132,7 @@ index 486c6d2..85cb81a 100644
  
  		fastRetransSize += chunkBytes
  		a.stats.incFastRetrans()
-@@ -1556,6 +1569,7 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
+@@ -1556,6 +1572,7 @@ func (a *Association) gatherOutboundFastRetransmissionPackets( //nolint:gocognit
  		}
  		rawPackets = append(rawPackets, raw)
  	}
@@ -137,7 +140,7 @@ index 486c6d2..85cb81a 100644
  
  	return rawPackets
  }
-@@ -1749,8 +1763,8 @@ func (a *Association) gatherOutbound() ([][]byte, bool) {
+@@ -1749,8 +1766,8 @@ func (a *Association) gatherOutbound() ([][]byte, bool) {
  		consumed := false
  
  		rawPackets = a.gatherDataPacketsToRetransmit(rawPackets, &budgetUnits, &consumed)
@@ -147,7 +150,7 @@ index 486c6d2..85cb81a 100644
  
  		// control traffic shouldn't be limited.
  		rawPackets = a.gatherOutboundSackPackets(rawPackets)
-@@ -2668,6 +2682,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2668,6 +2685,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  	newestDeliveredSendTime time.Time,
  	newestDeliveredOrigTSN uint32,
  	deliveredFound bool,
@@ -155,7 +158,7 @@ index 486c6d2..85cb81a 100644
  	err error,
  ) {
  	bytesAckedPerStream = map[uint16]int{}
-@@ -2679,35 +2694,36 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2679,35 +2697,36 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  	if sna32LT(a.cumulativeTSNAckPoint, selectiveAckChunk.cumulativeTSNAck) {
  		firstTSN := a.cumulativeTSNAckPoint + 1
  		if _, ok := a.inflightQueue.get(firstTSN); !ok {
@@ -198,7 +201,7 @@ index 486c6d2..85cb81a 100644
  
  	// New ack point, so pop all ACKed packets from inflightQueue
  	// We add 1 because the "currentAckPoint" has already been popped from the inflight queue
-@@ -2715,7 +2731,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2715,7 +2734,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  	for idx := a.cumulativeTSNAckPoint + 1; sna32LTE(idx, selectiveAckChunk.cumulativeTSNAck); idx++ {
  		chunkPayload, ok := a.inflightQueue.pop(idx)
  		if !ok {
@@ -207,7 +210,7 @@ index 486c6d2..85cb81a 100644
  		}
  
  		// RACK: remove from xmit-time list since it's delivered
-@@ -2754,10 +2770,15 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2754,10 +2773,15 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  				// Only original transmissions for classic RTT measurement (Karn's rule)
  				if chunkPayload.nSent == 1 {
  					a.minTSN2MeasureRTT = a.myNextTSN
@@ -225,7 +228,7 @@ index 486c6d2..85cb81a 100644
  					// use a window to determine minRtt instead of a global min
  					// as the RTT can fluctuate, which can cause problems if going from a
  					// high RTT to a low RTT.
-@@ -2766,6 +2787,9 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2766,6 +2790,9 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  					a.log.Tracef("[%s] SACK: measured-rtt=%f srtt=%f new-rto=%f",
  						a.name, rtt, srtt, a.rtoMgr.getRTO())
  				}
@@ -235,7 +238,7 @@ index 486c6d2..85cb81a 100644
  			}
  
  			// RFC 8985 (RACK) sec 5.2: RACK.segment is the most recently sent
-@@ -2780,6 +2804,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2780,6 +2807,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  		if a.inFastRecovery && chunkPayload.tsn == a.fastRecoverExitPoint {
  			a.log.Debugf("[%s] exit fast-recovery", a.name)
  			a.inFastRecovery = false
@@ -243,7 +246,7 @@ index 486c6d2..85cb81a 100644
  		}
  	}
  
-@@ -2791,7 +2816,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2791,7 +2819,7 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  			tsn := selectiveAckChunk.cumulativeTSNAck + i
  			chunkPayload, ok := a.inflightQueue.get(tsn)
  			if !ok {
@@ -252,7 +255,7 @@ index 486c6d2..85cb81a 100644
  			}
  
  			// RACK: remove from xmit-time list since it's delivered
-@@ -2814,15 +2839,23 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2814,15 +2842,23 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  					// Only original transmissions for classic RTT measurement
  					if chunkPayload.nSent == 1 {
  						a.minTSN2MeasureRTT = a.myNextTSN
@@ -278,7 +281,7 @@ index 486c6d2..85cb81a 100644
  				}
  
  				if chunkPayload.since.After(newestDeliveredSendTime) {
-@@ -2838,11 +2871,11 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
+@@ -2838,11 +2874,11 @@ func (a *Association) processSelectiveAck(selectiveAckChunk *chunkSelectiveAck)
  		}
  	}
  
@@ -292,7 +295,7 @@ index 486c6d2..85cb81a 100644
  	// RFC 4960, sec 6.3.2.  Retransmission Timer Rules
  	//   R2)  Whenever all outstanding data sent to an address have been
  	//        acknowledged, turn off the T3-rtx timer of that address.
-@@ -2856,51 +2889,8 @@ func (a *Association) onCumulativeTSNAckPointAdvanced(totalBytesAcked int) {
+@@ -2856,51 +2892,8 @@ func (a *Association) onCumulativeTSNAckPointAdvanced(totalBytesAcked int) {
  		a.t3RTX.start(a.rtoMgr.getRTO())
  	}
  
@@ -346,7 +349,7 @@ index 486c6d2..85cb81a 100644
  }
  
  // The caller should hold the lock.
-@@ -2948,19 +2938,20 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
+@@ -2948,19 +2941,20 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
  						a.tlrApplyAdditionalLossLocked(time.Now())
  					}
  
@@ -370,7 +373,7 @@ index 486c6d2..85cb81a 100644
  					}
  				}
  			}
-@@ -3008,7 +2999,7 @@ func (a *Association) processAcknowledgement(
+@@ -3008,7 +3002,7 @@ func (a *Association) processAcknowledgement(
  	// Process selective ack
  	bytesAckedPerStream, htna,
  		newestDeliveredSendTime, newestDeliveredOrigTSN,
@@ -379,7 +382,7 @@ index 486c6d2..85cb81a 100644
  	if err != nil {
  		return acknowledgementResult{}, err
  	}
-@@ -3019,6 +3010,7 @@ func (a *Association) processAcknowledgement(
+@@ -3019,6 +3013,7 @@ func (a *Association) processAcknowledgement(
  	}
  
  	cumTSNAckPointAdvanced := false
@@ -387,7 +390,7 @@ index 486c6d2..85cb81a 100644
  	if sna32LT(a.cumulativeTSNAckPoint, selectiveAckChunk.cumulativeTSNAck) {
  		a.log.Tracef("[%s] SACK: cumTSN advanced: %d -> %d",
  			a.name,
-@@ -3027,7 +3019,10 @@ func (a *Association) processAcknowledgement(
+@@ -3027,7 +3022,10 @@ func (a *Association) processAcknowledgement(
  
  		a.cumulativeTSNAckPoint = selectiveAckChunk.cumulativeTSNAck
  		cumTSNAckPointAdvanced = true
@@ -399,7 +402,7 @@ index 486c6d2..85cb81a 100644
  	}
  
  	for si, nBytesAcked := range bytesAckedPerStream {
-@@ -3132,7 +3127,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -3132,7 +3130,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  		return err
  	}
  
@@ -408,7 +411,7 @@ index 486c6d2..85cb81a 100644
  
  	// RACK
  	a.onRackAfterSACK(
-@@ -3773,6 +3768,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3773,6 +3771,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  
  	// track current packet size for MTU bundling so budgeting is accurate.
  	bytesInPacket := 0
@@ -416,7 +419,7 @@ index 486c6d2..85cb81a 100644
  
  	if a.pendingQueue.size() > 0 { //nolint:nestif
  		// RFC 4960 sec 6.1.  Transmission of DATA Chunks
-@@ -3783,6 +3779,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3783,6 +3782,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  		//      is 0), the data sender can always have one DATA chunk in flight to
  		//      the receiver if allowed by cwnd (see rule B, below).
  
@@ -425,7 +428,7 @@ index 486c6d2..85cb81a 100644
  		for {
  			chunkPayload := a.pendingQueue.peek()
  			if chunkPayload == nil {
-@@ -3810,8 +3808,17 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3810,8 +3811,17 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  
  			chunkBytes := chunkPayload.chunkSizeInPacket()
  
@@ -444,7 +447,7 @@ index 486c6d2..85cb81a 100644
  			if bytesInPacket == 0 {
  				addBytes += int(commonHeaderSize)
  				if addBytes > int(a.MTU()) {
-@@ -3819,9 +3826,6 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3819,9 +3829,6 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for common header + first chunk.
@@ -454,7 +457,7 @@ index 486c6d2..85cb81a 100644
  
  				bytesInPacket = int(commonHeaderSize)
  			} else {
-@@ -3833,10 +3837,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3833,10 +3840,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for the additional chunk bytes.
@@ -466,7 +469,7 @@ index 486c6d2..85cb81a 100644
  
  			a.setRWND(a.RWND() - dataLen)
  
-@@ -3852,16 +3853,27 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -3852,16 +3856,27 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  			if c != nil && len(c.userData) > 0 {
  				// probe is a new packet: common header + chunk bytes.
  				chunkBytes := c.chunkSizeInPacket()
@@ -497,7 +500,7 @@ index 486c6d2..85cb81a 100644
  	if a.blockWrite && len(chunks) > 0 && a.pendingQueue.size() == 0 {
  		a.log.Tracef("[%s] all pending data have been sent, notify writable", a.name)
  		a.notifyBlockWritable()
-@@ -4001,8 +4013,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4001,8 +4016,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  	var bytesToSend int
  	currRtxTimestamp := time.Now()
  
@@ -509,7 +512,7 @@ index 486c6d2..85cb81a 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -4018,11 +4032,18 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4018,11 +4035,18 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  		} else if bytesToSend+len(chunkPayload.userData) > int(awnd) {
  			break
  		}
@@ -531,7 +534,7 @@ index 486c6d2..85cb81a 100644
  			addBytes := chunkBytes
  			if bytesInPacket == 0 {
  				addBytes += int(commonHeaderSize)
-@@ -4036,9 +4057,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4036,9 +4060,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			}
  
  			// burst budget gate before mutating the chunk.
@@ -541,7 +544,7 @@ index 486c6d2..85cb81a 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -4046,7 +4064,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4046,7 +4067,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			bytesInPacket += chunkBytes
  
  			break
@@ -550,7 +553,7 @@ index 486c6d2..85cb81a 100644
  
  		chunkPayload.retransmit = false
  		bytesToSend += len(chunkPayload.userData)
-@@ -4066,6 +4084,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4066,6 +4087,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  		chunks = append(chunks, chunkPayload)
  	}
@@ -558,7 +561,7 @@ index 486c6d2..85cb81a 100644
  
  	return a.bundleDataChunksIntoPackets(chunks)
  }
-@@ -4102,35 +4121,29 @@ func pack(p *packet) []*packet {
+@@ -4102,35 +4124,29 @@ func pack(p *packet) []*packet {
  	return []*packet{p}
  }
  
@@ -598,7 +601,7 @@ index 486c6d2..85cb81a 100644
  	var packets []*packet
  	var err error
  
-@@ -4292,16 +4305,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
+@@ -4292,16 +4308,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
  		//      ssthresh = max(cwnd/2, 4*MTU)
  		//      cwnd = 1*MTU
  
