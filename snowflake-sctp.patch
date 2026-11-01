@@ -15,7 +15,7 @@ index 868cbc0..8dd8f92 100644
  
  // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
-index d1c3746..d161168 100644
+index d1c3746..843e0f1 100644
 --- a/association.go
 +++ b/association.go
 @@ -18,6 +18,7 @@ import (
@@ -312,7 +312,15 @@ index d1c3746..d161168 100644
  }
  
  // The caller should hold the lock.
-@@ -2323,19 +2317,20 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
+@@ -2286,6 +2280,7 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
+ 	gapAckBlocks []gapAckBlock,
+ 	htna uint32,
+ 	cumTSNAckPointAdvanced bool,
++	totalBytesAcked int,
+ ) error {
+ 	// HTNA algorithm - RFC 4960 Sec 7.2.4
+ 	// Increment missIndicator of each chunks that the SACK reported missing
+@@ -2323,26 +2318,27 @@ func (a *Association) processFastRetransmission( //nolint:gocognit
  						a.tlrApplyAdditionalLossLocked(time.Now())
  					}
  
@@ -336,7 +344,15 @@ index d1c3746..d161168 100644
  					}
  				}
  			}
-@@ -2384,7 +2379,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+ 		}
+ 	}
+ 
+-	if a.inFastRecovery && cumTSNAckPointAdvanced {
++	if a.inFastRecovery && totalBytesAcked > 0 {
+ 		a.willRetransmitFast = true
+ 	}
+ 
+@@ -2384,7 +2380,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  	// Process selective ack
  	bytesAckedPerStream, htna,
  		newestDeliveredSendTime, newestDeliveredOrigTSN,
@@ -345,7 +361,7 @@ index d1c3746..d161168 100644
  	if err != nil {
  		return err
  	}
-@@ -2395,6 +2390,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2395,6 +2391,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  	}
  
  	cumTSNAckPointAdvanced := false
@@ -353,7 +369,7 @@ index d1c3746..d161168 100644
  	if sna32LT(a.cumulativeTSNAckPoint, selectiveAckChunk.cumulativeTSNAck) {
  		a.log.Tracef("[%s] SACK: cumTSN advanced: %d -> %d",
  			a.name,
-@@ -2403,7 +2399,10 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2403,7 +2400,10 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  
  		a.cumulativeTSNAckPoint = selectiveAckChunk.cumulativeTSNAck
  		cumTSNAckPointAdvanced = true
@@ -365,7 +381,16 @@ index d1c3746..d161168 100644
  	}
  
  	for si, nBytesAcked := range bytesAckedPerStream {
-@@ -2461,7 +2460,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+@@ -2430,7 +2430,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
+ 	}
+ 
+ 	err = a.processFastRetransmission(
+-		selectiveAckChunk.cumulativeTSNAck, selectiveAckChunk.gapAckBlocks, htna, cumTSNAckPointAdvanced,
++		selectiveAckChunk.cumulativeTSNAck, selectiveAckChunk.gapAckBlocks, htna, cumTSNAckPointAdvanced, totalBytesAcked,
+ 	)
+ 	if err != nil {
+ 		return err
+@@ -2461,7 +2461,7 @@ func (a *Association) handleSack(selectiveAckChunk *chunkSelectiveAck) error {
  		a.awakeWriteLoop()
  	}
  
@@ -374,7 +399,7 @@ index d1c3746..d161168 100644
  
  	// RACK
  	a.onRackAfterSACK(deliveredFound, newestDeliveredSendTime, newestDeliveredOrigTSN, selectiveAckChunk)
-@@ -2869,6 +2868,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2869,6 +2869,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  
  	// track current packet size for MTU bundling so budgeting is accurate.
  	bytesInPacket := 0
@@ -382,7 +407,7 @@ index d1c3746..d161168 100644
  
  	if a.pendingQueue.size() > 0 { //nolint:nestif
  		// RFC 4960 sec 6.1.  Transmission of DATA Chunks
-@@ -2879,6 +2879,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2879,6 +2880,8 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  		//      is 0), the data sender can always have one DATA chunk in flight to
  		//      the receiver if allowed by cwnd (see rule B, below).
  
@@ -391,7 +416,7 @@ index d1c3746..d161168 100644
  		for {
  			chunkPayload := a.pendingQueue.peek()
  			if chunkPayload == nil {
-@@ -2904,12 +2906,21 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2904,12 +2907,21 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				break // no more rwnd
  			}
  
@@ -414,7 +439,7 @@ index d1c3746..d161168 100644
  			if bytesInPacket == 0 {
  				addBytes += int(commonHeaderSize)
  				if addBytes > int(a.MTU()) {
-@@ -2917,9 +2928,6 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2917,9 +2929,6 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for common header + first chunk.
@@ -424,7 +449,7 @@ index d1c3746..d161168 100644
  
  				bytesInPacket = int(commonHeaderSize)
  			} else {
-@@ -2931,10 +2939,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2931,10 +2940,7 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  				}
  
  				// reserve budget for the additional chunk bytes.
@@ -436,7 +461,7 @@ index d1c3746..d161168 100644
  
  			a.setRWND(a.RWND() - dataLen)
  
-@@ -2949,18 +2954,29 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
+@@ -2949,18 +2955,29 @@ func (a *Association) popPendingDataChunksToSend( //nolint:cyclop,gocognit
  			c := a.pendingQueue.peek()
  			if c != nil && len(c.userData) > 0 {
  				// probe is a new packet: common header + chunk bytes.
@@ -470,7 +495,7 @@ index d1c3746..d161168 100644
  	if a.blockWrite && len(chunks) > 0 && a.pendingQueue.size() == 0 {
  		a.log.Tracef("[%s] all pending data have been sent, notify writable", a.name)
  		a.notifyBlockWritable()
-@@ -3092,8 +3108,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3092,8 +3109,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  	var bytesToSend int
  	currRtxTimestamp := time.Now()
  
@@ -482,7 +507,7 @@ index d1c3746..d161168 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -3109,12 +3127,21 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3109,12 +3128,21 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  		} else if bytesToSend+len(chunkPayload.userData) > int(awnd) {
  			break
  		}
@@ -505,7 +530,7 @@ index d1c3746..d161168 100644
  			addBytes := chunkBytes
  			if bytesInPacket == 0 {
  				addBytes += int(commonHeaderSize)
-@@ -3128,9 +3155,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3128,9 +3156,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			}
  
  			// burst budget gate before mutating the chunk.
@@ -515,7 +540,7 @@ index d1c3746..d161168 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -3138,7 +3162,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3138,7 +3163,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			bytesInPacket += chunkBytes
  
  			break
@@ -524,7 +549,7 @@ index d1c3746..d161168 100644
  
  		chunkPayload.retransmit = false
  		bytesToSend += len(chunkPayload.userData)
-@@ -3158,6 +3182,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3158,6 +3183,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  		chunks = append(chunks, chunkPayload)
  	}
@@ -532,7 +557,7 @@ index d1c3746..d161168 100644
  
  	return a.bundleDataChunksIntoPackets(chunks)
  }
-@@ -3194,35 +3219,29 @@ func pack(p *packet) []*packet {
+@@ -3194,35 +3220,29 @@ func pack(p *packet) []*packet {
  	return []*packet{p}
  }
  
@@ -572,7 +597,7 @@ index d1c3746..d161168 100644
  	var packets []*packet
  	var err error
  
-@@ -3360,16 +3379,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
+@@ -3360,16 +3380,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
  		//      ssthresh = max(cwnd/2, 4*MTU)
  		//      cwnd = 1*MTU
  
@@ -594,6 +619,24 @@ index d1c3746..d161168 100644
  			a.willRetransmitFast = false
  			a.fastRecoverExitPoint = 0
  			a.partialBytesAcked = 0
+@@ -3739,7 +3761,7 @@ func (a *Association) onRackAfterSACK( // nolint:gocognit,cyclop,gocyclo
+ 				continue
+ 			}
+ 
+-			if chunk.retransmit || chunk.nSent > 1 {
++			if chunk.retransmit || (chunk.missIndicator >= 3 && chunk.nSent == 1) {
+ 				// Either already scheduled for retransmit or not an original send:
+ 				// skip but keep in list in case it's still outstanding.
+ 				chunk = next
+@@ -3860,7 +3882,7 @@ func (a *Association) onRackTimeoutLocked() { //nolint:cyclop
+ 
+ 			continue
+ 		}
+-		if chunk.retransmit || chunk.nSent > 1 {
++		if chunk.retransmit || (chunk.missIndicator >= 3 && chunk.nSent == 1) {
+ 			chunk = next
+ 
+ 			continue
 diff --git a/association_test.go b/association_test.go
 index 20c4792..6392d62 100644
 --- a/association_test.go
