@@ -15,7 +15,7 @@ index 868cbc0..8dd8f92 100644
  
  // ackTimerObserver is the inteface to an ack timer observer.
 diff --git a/association.go b/association.go
-index 486c6d2..cc32752 100644
+index 486c6d2..15770ef 100644
 --- a/association.go
 +++ b/association.go
 @@ -19,6 +19,7 @@ import (
@@ -524,7 +524,18 @@ index 486c6d2..cc32752 100644
  	if a.blockWrite && len(chunks) > 0 && a.pendingQueue.size() == 0 {
  		a.log.Tracef("[%s] all pending data have been sent, notify writable", a.name)
  		a.notifyBlockWritable()
-@@ -4001,8 +4018,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -3936,8 +3953,10 @@ func (a *Association) sendPayloadData(ctx context.Context, chunks []*chunkPayloa
+ 		a.writePending = true
+ 	}
+ 
++	immediateSack := a.CWND() < 150000
+ 	// Push the chunks into the pending queue first.
+ 	for _, c := range chunks {
++		c.immediateSack = immediateSack
+ 		a.pendingQueue.push(c)
+ 	}
+ 
+@@ -4001,8 +4020,10 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  	var bytesToSend int
  	currRtxTimestamp := time.Now()
  
@@ -536,7 +547,7 @@ index 486c6d2..cc32752 100644
  	for i := 0; ; i++ {
  		chunkPayload, ok := a.inflightQueue.get(a.cumulativeTSNAckPoint + uint32(i) + 1) //nolint:gosec // G115
  		if !ok {
-@@ -4018,11 +4037,18 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4018,11 +4039,18 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  		} else if bytesToSend+len(chunkPayload.userData) > int(awnd) {
  			break
  		}
@@ -558,7 +569,7 @@ index 486c6d2..cc32752 100644
  			addBytes := chunkBytes
  			if bytesInPacket == 0 {
  				addBytes += int(commonHeaderSize)
-@@ -4036,9 +4062,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4036,9 +4064,6 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			}
  
  			// burst budget gate before mutating the chunk.
@@ -568,7 +579,7 @@ index 486c6d2..cc32752 100644
  
  			if bytesInPacket == 0 {
  				bytesInPacket = int(commonHeaderSize)
-@@ -4046,7 +4069,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4046,7 +4071,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  			bytesInPacket += chunkBytes
  
  			break
@@ -577,7 +588,7 @@ index 486c6d2..cc32752 100644
  
  		chunkPayload.retransmit = false
  		bytesToSend += len(chunkPayload.userData)
-@@ -4066,6 +4089,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
+@@ -4066,6 +4091,7 @@ func (a *Association) getDataPacketsToRetransmit(budgetScaled *int64, consumed *
  
  		chunks = append(chunks, chunkPayload)
  	}
@@ -585,7 +596,7 @@ index 486c6d2..cc32752 100644
  
  	return a.bundleDataChunksIntoPackets(chunks)
  }
-@@ -4102,35 +4126,29 @@ func pack(p *packet) []*packet {
+@@ -4102,35 +4128,29 @@ func pack(p *packet) []*packet {
  	return []*packet{p}
  }
  
@@ -625,7 +636,7 @@ index 486c6d2..cc32752 100644
  	var packets []*packet
  	var err error
  
-@@ -4292,16 +4310,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
+@@ -4292,16 +4312,18 @@ func (a *Association) onRetransmissionTimeout(id int, nRtos uint) { //nolint:cyc
  		//      ssthresh = max(cwnd/2, 4*MTU)
  		//      cwnd = 1*MTU
  
@@ -647,7 +658,7 @@ index 486c6d2..cc32752 100644
  			a.willRetransmitFast = false
  			a.fastRecoverExitPoint = 0
  			a.partialBytesAcked = 0
-@@ -4671,7 +4691,7 @@ func (a *Association) onRackAfterSACK( // nolint:gocognit,cyclop,gocyclo
+@@ -4671,7 +4693,7 @@ func (a *Association) onRackAfterSACK( // nolint:gocognit,cyclop,gocyclo
  				continue
  			}
  
@@ -656,7 +667,7 @@ index 486c6d2..cc32752 100644
  				// Either already scheduled for retransmit or not an original send:
  				// skip but keep in list in case it's still outstanding.
  				chunk = next
-@@ -4792,7 +4812,7 @@ func (a *Association) onRackTimeoutLocked() { //nolint:cyclop
+@@ -4792,7 +4814,7 @@ func (a *Association) onRackTimeoutLocked() { //nolint:cyclop
  
  			continue
  		}
