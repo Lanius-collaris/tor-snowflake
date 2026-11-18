@@ -691,10 +691,10 @@ index 98379b5..a5d24b0 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..293cab0
+index 0000000..b017f8c
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,782 @@
+@@ -0,0 +1,783 @@
 +package cc_alg
 +
 +import (
@@ -1263,7 +1263,8 @@ index 0000000..293cab0
 +			frcc.CWND = max(frcc.CWND+ackedBytes, param.LBCwnd)
 +			frcc.updatePacingRate(rtt, false)
 +		} else {
-+			frcc.CWND = max(frcc.CWND/2, param.LBCwnd)
++			//1/(2^1.5) = 0.3535533905932738
++			frcc.CWND = max(uint32(float32(frcc.CWND)*0.3535533905932738), param.LBCwnd)
 +			frcc.updatePacingRate(rtt, false)
 +			frcc.SSEndInitiated = true
 +		}
