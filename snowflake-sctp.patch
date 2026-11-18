@@ -691,10 +691,10 @@ index 98379b5..a5d24b0 100644
  	exited := !assoc.inFastRecovery
 diff --git a/cc_alg/frcc.go b/cc_alg/frcc.go
 new file mode 100644
-index 0000000..4191140
+index 0000000..293cab0
 --- /dev/null
 +++ b/cc_alg/frcc.go
-@@ -0,0 +1,771 @@
+@@ -0,0 +1,782 @@
 +package cc_alg
 +
 +import (
@@ -830,6 +830,8 @@ index 0000000..4191140
 +	SSEndInitiated bool
 +	SSSentBytes    uint64
 +	SSAckedBytes   uint64
++	SSLastCheck    time.Time
++	SSMinRTT       time.Duration
 +
 +	SlotMaxQDel   time.Duration
 +	SlotStartTime time.Time
@@ -940,6 +942,8 @@ index 0000000..4191140
 +
 +		SSDone:         false,
 +		SSEndInitiated: false,
++		SSLastCheck:    time.Time{},
++		SSMinRTT:       math.MaxUint32 * time.Microsecond,
 +
 +		PacingSlotStart: time.Time{},
 +		PacingSlotEnd:   time.Time{},
@@ -1237,13 +1241,20 @@ index 0000000..4191140
 +	// when we expect the rtt to stop increasing.
 +
 +	param := &frcc.Param
-+	delta1 := param.ContractMinQDel + param.UBRTTErr
-+	shouldInitSSEnd := rtt > frcc.MinRTProp+delta1
++	delta1 := param.ContractMinQDel
++	frcc.SSMinRTT = min(frcc.SSMinRTT, rtt)
++	shouldInitSSEnd := false
++	if now.Sub(frcc.SSLastCheck) > frcc.MinRTProp/2 {
++		frcc.SSLastCheck = now
++		if frcc.MinRTProp >= delta1 {
++			shouldInitSSEnd = frcc.SSMinRTT > frcc.MinRTProp+delta1
++		} else {
++			shouldInitSSEnd = frcc.SSMinRTT > frcc.MinRTProp<<1
++		}
++		frcc.SSMinRTT = math.MaxUint32 * time.Microsecond
++	}
 +	// TODO: contract_const subsumes rtt_err, so should we really add that
 +	// here?
-+	if frcc.MinRTProp < delta1 {
-+		shouldInitSSEnd = rtt > frcc.MinRTProp<<1
-+	}
 +
 +	ssEnded := frcc.SSAckedBytes >= frcc.SSSentBytes
 +
